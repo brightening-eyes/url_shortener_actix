@@ -1,10 +1,10 @@
 use crate::services::{cache::CacheService, db::DbService};
-use actix_web::{get, post, web, HttpRequest, HttpResponse, Responder};
+use actix_web::{HttpRequest, HttpResponse, Responder, get, post, web};
 use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, instrument};
-use validator::Validate;
 use utoipa::ToSchema;
+use validator::Validate;
 
 #[derive(Deserialize, Validate, ToSchema)]
 pub struct ShortenRequest {
