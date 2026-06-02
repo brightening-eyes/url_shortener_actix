@@ -2,7 +2,7 @@ use actix_cors::Cors;
 use actix_governor::{Governor, GovernorConfig};
 use actix_web::{App, HttpServer, web};
 use mimalloc::MiMalloc;
-use url_shortener::routes::{health::health_check, url::redirect_to_long_url, url::shorten_url, url::shorten_url_custom};
+use url_shortener::routes::{health::health_check, url::get_click_stats, url::redirect_to_long_url, url::shorten_url, url::shorten_url_custom};
 use url_shortener::services::{cache::CacheService, db::DbService, db::establish_connection};
 use url_shortener::ApiDoc;
 use utoipa::OpenApi;
@@ -57,6 +57,7 @@ async fn main() -> std::io::Result<()> {
             .service(shorten_url)
             .service(shorten_url_custom)
             .service(redirect_to_long_url)
+            .service(get_click_stats)
     })
     .bind(server_addr)?
     .run()

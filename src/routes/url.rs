@@ -52,6 +52,23 @@ pub struct ErrorResponse {
     pub error: String,
 }
 
+#[derive(Serialize, ToSchema)]
+pub struct ClickEventResponse {
+    pub id: i32,
+    pub short_code: String,
+    pub clicked_at: String,
+    pub ip_address: Option<String>,
+    pub user_agent: Option<String>,
+    pub referer: Option<String>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct ClickStatsResponse {
+    pub short_code: String,
+    pub total_clicks: usize,
+    pub clicks: Vec<ClickEventResponse>,
+}
+
 fn is_valid_custom_code(code: &str) -> bool {
     let len = code.len();
     (CUSTOM_SHORT_CODE_MIN..=CUSTOM_SHORT_CODE_MAX).contains(&len)
@@ -263,6 +280,63 @@ pub async fn redirect_to_long_url(
         Err(e) => {
             error!("Database error on redirect: {}", e);
             HttpResponse::InternalServerError().body("An error occurred")
+        }
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/{short_code}/stats",
+    responses(
+        (status = 200, description = "click statistics for the short code", body = ClickStatsResponse),
+        (status = 404, description = "short code not found", body = ErrorResponse),
+    )
+)]
+#[instrument(skip(db_service), fields(short_code = %short_code))]
+#[get("/{short_code}/stats")]
+pub async fn get_click_stats(
+    db_service: web::Data<DbService>,
+    short_code: web::Path<String>,
+) -> impl Responder {
+    let code = short_code.into_inner();
+
+    match db_service.find_url_by_short_code(&code).await {
+        Ok(None) => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                error: "Short code not found".to_string(),
+            });
+        }
+        Err(e) => {
+            error!("Database error when checking short code: {}", e);
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "Failed to retrieve click statistics".to_string(),
+            });
+        }
+        _ => {}
+    }
+
+    match db_service.get_click_stats(&code).await {
+        Ok(clicks) => {
+            let click_responses: Vec<ClickEventResponse> = clicks.iter().map(|c| ClickEventResponse {
+                id: c.id,
+                short_code: c.short_code.clone(),
+                clicked_at: c.clicked_at.to_string(),
+                ip_address: c.ip_address.clone(),
+                user_agent: c.user_agent.clone(),
+                referer: c.referer.clone(),
+            }).collect();
+            let response = ClickStatsResponse {
+                total_clicks: click_responses.len(),
+                short_code: code,
+                clicks: click_responses,
+            };
+            HttpResponse::Ok().json(response)
+        }
+        Err(e) => {
+            error!("Failed to retrieve click stats: {}", e);
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "Failed to retrieve click statistics".to_string(),
+            })
         }
     }
 }

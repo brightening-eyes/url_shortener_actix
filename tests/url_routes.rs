@@ -1,6 +1,6 @@
 use actix_web::{App, test, web};
 use sea_orm::{ConnectionTrait, Database, Statement};
-use url_shortener::routes::url::{redirect_to_long_url, shorten_url, shorten_url_custom};
+use url_shortener::routes::url::{get_click_stats, redirect_to_long_url, shorten_url, shorten_url_custom};
 use url_shortener::services::cache::CacheService;
 use url_shortener::services::db::DbService;
 
@@ -42,6 +42,7 @@ macro_rules! init_test_app {
                 .service(shorten_url)
                 .service(shorten_url_custom)
                 .service(redirect_to_long_url)
+                .service(get_click_stats)
         )
     };
 }
@@ -67,6 +68,64 @@ async fn test_shorten_url_success() {
 
     let body: serde_json::Value = test::read_body_json(resp).await;
     assert!(body.get("short_url").and_then(|v| v.as_str()).is_some());
+}
+
+#[actix_web::test]
+async fn test_click_stats_empty() {
+    let db = setup_db().await;
+    let app = init_test_app!(db).await;
+
+    let create_req = test::TestRequest::post()
+        .uri("/custom")
+        .set_json(serde_json::json!({"url": "https://example.com", "short_code": "stats-test"}))
+        .to_request();
+    let create_resp = test::call_service(&app, create_req).await;
+    assert!(create_resp.status().is_success());
+
+    let stats_req = test::TestRequest::get()
+        .uri("/stats-test/stats")
+        .to_request();
+    let stats_resp: serde_json::Value = test::read_body_json(test::call_service(&app, stats_req).await).await;
+    assert_eq!(stats_resp.get("total_clicks").and_then(|v| v.as_u64()), Some(0));
+    assert_eq!(stats_resp.get("short_code").and_then(|v| v.as_str()), Some("stats-test"));
+}
+
+#[actix_web::test]
+async fn test_click_stats_with_clicks() {
+    let db = setup_db().await;
+    let app = init_test_app!(db).await;
+
+    let create_req = test::TestRequest::post()
+        .uri("/custom")
+        .set_json(serde_json::json!({"url": "https://example.com", "short_code": "clicked-link"}))
+        .to_request();
+    let create_resp = test::call_service(&app, create_req).await;
+    assert!(create_resp.status().is_success());
+
+    let redirect_req = test::TestRequest::get()
+        .uri("/clicked-link")
+        .to_request();
+    let redirect_resp = test::call_service(&app, redirect_req).await;
+    assert_eq!(redirect_resp.status(), 301);
+
+    let stats_req = test::TestRequest::get()
+        .uri("/clicked-link/stats")
+        .to_request();
+    let stats_resp: serde_json::Value = test::read_body_json(test::call_service(&app, stats_req).await).await;
+    assert_eq!(stats_resp.get("total_clicks").and_then(|v| v.as_u64()), Some(1));
+    assert!(stats_resp.get("clicks").and_then(|v| v.as_array()).is_some());
+}
+
+#[actix_web::test]
+async fn test_click_stats_not_found() {
+    let db = setup_db().await;
+    let app = init_test_app!(db).await;
+
+    let req = test::TestRequest::get()
+        .uri("/nonexistent/stats")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 404);
 }
 
 #[actix_web::test]
