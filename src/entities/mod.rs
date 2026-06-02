@@ -2,4 +2,5 @@
 
 pub mod prelude;
 
+pub mod click_event;
 pub mod url;
